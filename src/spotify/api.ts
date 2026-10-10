@@ -46,6 +46,7 @@ async function apiFetch(path: string, init: RequestInit, allowAuthRetry = true):
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
   } catch (e) {
+    if (e instanceof DOMException && e.name === 'AbortError') throw e;
     console.error('Spotify API network error', path, e);
     throw new SpotifyApiError(0, 'Keine Verbindung zu Spotify. Prüfe WLAN/Mobilfunk.');
   }
@@ -90,6 +91,52 @@ export async function playTrack(deviceId: string, uri: string, positionMs: numbe
     }
     throw e;
   }
+}
+
+export interface TrackInfo {
+  uri: string;
+  name: string;
+  artists: string;
+  album: string;
+  image: string;
+  durationMs: number;
+}
+
+interface ApiTrack {
+  uri: string;
+  name: string;
+  duration_ms: number;
+  artists: { name: string }[];
+  album: { name: string; images: { url: string; width: number | null }[] };
+}
+
+function toTrackInfo(t: ApiTrack): TrackInfo {
+  // Smallest image that is still sharp on a button (Spotify returns 640/300/64).
+  const images = [...t.album.images].sort((a, b) => (a.width ?? 0) - (b.width ?? 0));
+  const image = images.find((i) => (i.width ?? 0) >= 300) ?? images.at(-1);
+  return {
+    uri: t.uri,
+    name: t.name,
+    artists: t.artists.map((a) => a.name).join(', '),
+    album: t.album.name,
+    image: image?.url ?? '',
+    durationMs: t.duration_ms,
+  };
+}
+
+/** GET /search – no extra scope needed. Development Mode caps `limit` at 10. */
+export async function searchTracks(query: string, signal?: AbortSignal): Promise<TrackInfo[]> {
+  const q = new URLSearchParams({ q: query, type: 'track', limit: '10' });
+  const res = await apiFetch(`/search?${q}`, { method: 'GET', signal });
+  const json = (await res.json()) as { tracks?: { items?: ApiTrack[] } };
+  return (json.tracks?.items ?? []).map(toTrackInfo);
+}
+
+/** GET /tracks/{id} – resolves a pasted link/URI to name, artist, cover, duration. */
+export async function getTrack(uri: string): Promise<TrackInfo> {
+  const id = uri.split(':')[2];
+  const res = await apiFetch(`/tracks/${encodeURIComponent(id)}`, { method: 'GET' });
+  return toTrackInfo((await res.json()) as ApiTrack);
 }
 
 /** Accepts spotify:track:ID or https://open.spotify.com/(intl-xx/)track/ID?si=… */

@@ -7,8 +7,8 @@ Persönliches, nicht-kommerzielles Soundboard: Button drücken → Spotify-Track
 - Login: OAuth 2.0 **Authorization Code with PKCE** (kein Client Secret)
 - Start: **eine** Anfrage `PUT /me/player/play?device_id=…` mit `{ uris: [track], position_ms }`
 
-> Status: **Phase 1 + 2** (Login, Player, „Spotify aktivieren“, Test-Song an Startposition, Pause/Weiter).
-> Soundboard-UI, Editor, Import/Export folgen erst nach erfolgreichem iPad-Test.
+> Status: **Phase 1–3** (Login, Player, „Spotify aktivieren“, Soundboard mit 6 Buttons, Editor mit Song-Suche,
+> Startzeit, localStorage, Import/Export). Endzeit (`endMs`) folgt in Version 2.
 
 ---
 
@@ -110,11 +110,15 @@ git push -u origin main
 2. **Safari** (kein Privatmodus) → `https://<projekt>.vercel.app`
 3. **Mit Spotify verbinden** → Login → Zustimmen
 4. Warten bis „🟢 Spotify Player bereit“ → **🔊 Spotify aktivieren** tippen
-5. Song-Link einfügen (Spotify-App → Song → Teilen → Link kopieren) oder Standard lassen, Startzeit `00:42`
-6. **🔥 TEST SONG** → Song startet bei ~00:42
-7. Anderen Link/Startzeit → erneut TEST SONG → ersetzt den laufenden Song
-8. **⏸ Pause** / **▶ Weiter**
+5. **⚙️** (oben rechts) → Button wählen → im Suchfeld Song suchen **oder** Spotify-Link einfügen
+   (Spotify-App → Song → Teilen → Link kopieren) → Treffer antippen → Startzeit `MM:SS` → **▶ Test** → **✓ Fertig**
+6. Soundboard-Button tippen → Song startet bei der Startzeit
+7. Anderen Button tippen → ersetzt den laufenden Song
+8. **⏹ STOP** pausiert, **▶ WEITER** setzt fort
 9. Bei Problemen: **Debug** aufklappen (Device ID, Track, Position, letzter Fehler)
+
+Die Konfiguration liegt im `localStorage` des Safari-Profils auf dem iPad. **⬇ Export JSON** sichert sie als
+`soundboard.json` (Dateien-App), **⬆ Import JSON** lädt sie zurück, **Reset** stellt die 6 Standard-Buttons her.
 
 Tipps fürs Spiel: Einstellungen → Anzeige → **Automatische Sperre: Nie** (gesperrter Bildschirm kann Safari-Audio stoppen).
 Die Lautstärke wird auf iOS nur über die Hardware-Tasten geregelt (Spotify-SDK kann sie dort nicht setzen).
@@ -139,7 +143,10 @@ OAuth-Redirects verhalten sich dort unzuverlässig. Erst testen, wenn alles in S
 - **Premium-Prüfung:** Seit Feb. 2026 liefert `/me` kein `product`-Feld mehr. Erkannt wird fehlendes Premium
   über das SDK-Event `account_error` bzw. `403 PREMIUM_REQUIRED`.
 - **Endzeit (`endMs`):** Endzeit wird in Version 2 ergänzt (das SDK hat kein „stop at“; nur per Polling möglich).
-- **Suche (Phase 3):** `GET /search` ist im Development Mode verfügbar, aber max. 10 Ergebnisse pro Anfrage.
+- **Suche:** `GET /search` und `GET /tracks/{id}` brauchen keinen zusätzlichen Scope. Development Mode liefert
+  max. 10 Treffer pro Anfrage; die Suche ist mit 400 ms Debounce entprellt, laufende Anfragen werden abgebrochen.
+- **Import:** Importierte JSON-Dateien werden validiert (nur `spotify:track:`-URIs, nur Cover von `i.scdn.co`,
+  max. 24 Buttons), damit keine fremden Inhalte ins UI gelangen.
 
 ## Spotify-Richtlinien
 

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
+import Editor from './components/Editor';
+import Soundboard from './components/Soundboard';
 import { clearSession, completeLoginIfCallback, getConfig, hasSession, startLogin } from './spotify/auth';
-import { parseTrackUri, toUserMessage } from './spotify/api';
+import { toUserMessage } from './spotify/api';
 import { activatePlayer, getPlayer, initPlayer, queuePause, queuePlay, queueResume } from './spotify/player';
-import { formatTime, parseTime } from './utils/time';
+import { loadConfig, saveConfig } from './storage/soundboardStorage';
+import type { SoundButton, SoundboardConfig } from './types/soundboard';
+import { formatTime } from './utils/time';
 
 type AuthState = 'checking' | 'loggedOut' | 'loggedIn';
 type PlayerStatus = 'off' | 'connecting' | 'ready' | 'not_ready' | 'error';
-
-// Phase 1/2 test track – replace via the input with a song from your own playlist.
-const DEFAULT_TEST_TRACK = 'spotify:track:4cOdK2wGLETKBW3PvgPWqT';
 
 function readConfigError(): string | null {
   try {
@@ -28,8 +29,11 @@ export default function App() {
   const [playback, setPlayback] = useState<Spotify.PlaybackState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsTap, setNeedsTap] = useState(false);
-  const [trackInput, setTrackInput] = useState(DEFAULT_TEST_TRACK);
-  const [startInput, setStartInput] = useState('00:42');
+  const [board, setBoard] = useState<SoundboardConfig>(loadConfig);
+  const [editing, setEditing] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  useEffect(() => saveConfig(board), [board]);
 
   useEffect(() => {
     if (configError) return;
@@ -55,6 +59,7 @@ export default function App() {
       onError: (kind, msg) => {
         setError(msg);
         if (kind !== 'playback_error') setPlayerStatus('error');
+        if (kind === 'authentication_error' && !hasSession()) setAuth('loggedOut');
       },
     }).catch((e: unknown) => {
       setError(toUserMessage(e));
@@ -62,7 +67,11 @@ export default function App() {
     });
   }, [auth]);
 
-  const reportError = (e: unknown) => setError(toUserMessage(e));
+  const reportError = (e: unknown) => {
+    setError(toUserMessage(e));
+    // Session was cleared (invalid/expired refresh token) → show the login button again.
+    if (!hasSession()) setAuth('loggedOut');
+  };
 
   const onConnect = () => {
     setError(null);
@@ -75,15 +84,13 @@ export default function App() {
     setError(null);
   };
 
-  const onPlayTest = () => {
-    const uri = parseTrackUri(trackInput);
-    if (!uri) return setError('Ungültiger Song. Füge einen Spotify-Track-Link oder eine spotify:track:… URI ein.');
-    const positionMs = parseTime(startInput);
-    if (positionMs === null) return setError('Startzeit bitte im Format MM:SS eingeben, z. B. 00:42.');
+  const onPlayButton = (b: SoundButton) => {
+    if (!b.spotifyUri) return setError(`„${b.name}“ hat noch keinen Song. Im ⚙️ Editor einstellen.`);
     if (playerStatus !== 'ready' || !deviceId) return setError('Spotify-Player ist noch nicht bereit.');
     if (!activated) onActivate();
     setError(null);
-    queuePlay(deviceId, uri, positionMs, reportError);
+    setActiveId(b.id);
+    queuePlay(deviceId, b.spotifyUri, b.startMs, reportError);
   };
 
   const onPause = () => queuePause(reportError);
@@ -107,6 +114,10 @@ export default function App() {
 
   const track = playback?.track_window.current_track ?? null;
   const ready = playerStatus === 'ready' && !!deviceId;
+  const playing = !!playback && !playback.paused;
+  const nowPlaying = track
+    ? `${playing ? '▶' : '⏸'} ${track.name} – ${track.artists.map((a) => a.name).join(', ')}`
+    : 'Kein Song aktiv';
 
   if (configError) {
     return (
@@ -119,8 +130,15 @@ export default function App() {
   return (
     <main className="app">
       <header className="header">
-        <h1>🏐 Volleyball Soundboard</h1>
-        <StatusLine auth={auth} playerStatus={playerStatus} activated={activated} />
+        <div>
+          <h1>🏐 Volleyball Soundboard</h1>
+          <StatusLine auth={auth} playerStatus={playerStatus} activated={activated} />
+        </div>
+        {auth === 'loggedIn' && !editing && (
+          <button className="btn btn--icon" aria-label="Buttons bearbeiten" onClick={() => setEditing(true)}>
+            ⚙️
+          </button>
+        )}
       </header>
 
       {error && (
@@ -130,12 +148,25 @@ export default function App() {
       )}
 
       {auth === 'loggedOut' && (
-        <button className="btn btn--primary btn--huge" onClick={onConnect}>
-          Mit Spotify verbinden
-        </button>
+        <>
+          <button className="btn btn--primary btn--huge" onClick={onConnect}>
+            Mit Spotify verbinden
+          </button>
+          <p className="muted">Verbinde jetzt deinen Bluetooth-Lautsprecher mit dem iPad.</p>
+        </>
       )}
 
-      {auth === 'loggedIn' && (
+      {auth === 'loggedIn' && editing && (
+        <Editor
+          config={board}
+          onChange={setBoard}
+          onTest={onPlayButton}
+          canTest={ready}
+          onClose={() => setEditing(false)}
+        />
+      )}
+
+      {auth === 'loggedIn' && !editing && (
         <>
           {!activated && (
             <button className="btn btn--primary btn--huge" onClick={onActivate} disabled={!ready}>
@@ -149,80 +180,58 @@ export default function App() {
             </button>
           )}
 
-          <section className="card">
-            <h2>Test (Phase 1/2)</h2>
-            <label className="field">
-              <span>Song (Spotify-Link oder URI)</span>
-              <input
-                value={trackInput}
-                onChange={(e) => setTrackInput(e.target.value)}
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </label>
-            <label className="field field--short">
-              <span>Startzeit (MM:SS)</span>
-              <input
-                value={startInput}
-                onChange={(e) => setStartInput(e.target.value)}
-                inputMode="numeric"
-                pattern="\d{1,3}:[0-5]\d"
-              />
-            </label>
-            <div className="row">
-              <button className="btn btn--hype" onClick={onPlayTest} disabled={!ready}>
-                🔥 TEST SONG
-              </button>
-              <button className="btn" onClick={onPause} disabled={!ready}>
-                ⏸ Pause
-              </button>
-              <button className="btn" onClick={onResume} disabled={!ready}>
-                ▶ Weiter
-              </button>
-            </div>
-            {track && (
-              <p className="now-playing">
-                {playback?.paused ? '⏸' : '▶'} {track.name} – {track.artists.map((a) => a.name).join(', ')}
-              </p>
-            )}
-          </section>
+          <Soundboard
+            buttons={board.buttons}
+            activeId={activeId}
+            paused={!playing}
+            disabled={!ready}
+            onPlay={onPlayButton}
+          />
+
+          <div className="transport">
+            <button className="btn btn--stop" onClick={playing ? onPause : onResume} disabled={!ready || !track}>
+              {playing ? '⏹ STOP' : '▶ WEITER'}
+            </button>
+            <p className="now-playing">{nowPlaying}</p>
+          </div>
         </>
       )}
 
-      <details className="debug">
-        <summary>Debug</summary>
-        <dl>
-          <dt>Spotify authenticated</dt>
-          <dd>{auth}</dd>
-          <dt>Player status</dt>
-          <dd>{playerStatus}</dd>
-          <dt>Player activated</dt>
-          <dd>{String(activated)}</dd>
-          <dt>Device ID</dt>
-          <dd className="mono">{deviceId ?? '–'}</dd>
-          <dt>Current track</dt>
-          <dd>{track ? `${track.name} (${track.uri})` : '–'}</dd>
-          <dt>Position</dt>
-          <dd>{playback ? `${formatTime(playback.position)} / ${formatTime(playback.duration)}` : '–'}</dd>
-          <dt>Paused</dt>
-          <dd>{playback ? String(playback.paused) : '–'}</dd>
-          <dt>Autoplay blocked</dt>
-          <dd>{String(needsTap)}</dd>
-          <dt>Last error</dt>
-          <dd>{error ?? '–'}</dd>
-        </dl>
-        <div className="row">
-          <button className="btn btn--small" onClick={onRefreshState} disabled={!ready}>
-            Status aktualisieren
-          </button>
-          {auth === 'loggedIn' && (
-            <button className="btn btn--small" onClick={onLogout}>
-              Spotify trennen
+      {!editing && (
+        <details className="debug">
+          <summary>Debug</summary>
+          <dl>
+            <dt>Spotify authenticated</dt>
+            <dd>{auth}</dd>
+            <dt>Player status</dt>
+            <dd>{playerStatus}</dd>
+            <dt>Player activated</dt>
+            <dd>{String(activated)}</dd>
+            <dt>Device ID</dt>
+            <dd className="mono">{deviceId ?? '–'}</dd>
+            <dt>Current track</dt>
+            <dd>{track ? `${track.name} (${track.uri})` : '–'}</dd>
+            <dt>Position</dt>
+            <dd>{playback ? `${formatTime(playback.position)} / ${formatTime(playback.duration)}` : '–'}</dd>
+            <dt>Paused</dt>
+            <dd>{playback ? String(playback.paused) : '–'}</dd>
+            <dt>Autoplay blocked</dt>
+            <dd>{String(needsTap)}</dd>
+            <dt>Last error</dt>
+            <dd>{error ?? '–'}</dd>
+          </dl>
+          <div className="row">
+            <button className="btn btn--small" onClick={onRefreshState} disabled={!ready}>
+              Status aktualisieren
             </button>
-          )}
-        </div>
-      </details>
+            {auth === 'loggedIn' && (
+              <button className="btn btn--small" onClick={onLogout}>
+                Spotify trennen
+              </button>
+            )}
+          </div>
+        </details>
+      )}
     </main>
   );
 }
