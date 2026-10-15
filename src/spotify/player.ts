@@ -1,7 +1,7 @@
 // Spotify Web Playback SDK wrapper + a "last command wins" playback queue.
 // Docs: https://developer.spotify.com/documentation/web-playback-sdk/reference
 import { getAccessToken } from './auth';
-import { playTrack, toUserMessage } from './api';
+import { playPlaylist, playTrack, toUserMessage } from './api';
 
 const SDK_URL = 'https://sdk.scdn.co/spotify-player.js';
 export const PLAYER_NAME = 'Volleyball Soundboard';
@@ -129,6 +129,16 @@ async function drain(): Promise<void> {
 
 export function queuePlay(deviceId: string, uri: string, positionMs: number, onError: (e: unknown) => void): void {
   enqueue(() => playTrack(deviceId, uri, positionMs), onError);
+}
+
+export function queuePlaylist(
+  deviceId: string,
+  uri: string,
+  offset: number,
+  shuffle: boolean,
+  onError: (e: unknown) => void,
+): void {
+  enqueue(() => playPlaylist(deviceId, uri, offset, shuffle), onError);
 }
 
 export function queuePause(onError: (e: unknown) => void): void {

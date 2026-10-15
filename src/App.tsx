@@ -3,9 +3,10 @@ import Editor from './components/Editor';
 import Soundboard from './components/Soundboard';
 import { clearSession, completeLoginIfCallback, getConfig, hasSession, startLogin } from './spotify/auth';
 import { toUserMessage } from './spotify/api';
-import { activatePlayer, getPlayer, initPlayer, queuePause, queuePlay, queueResume } from './spotify/player';
-import { loadConfig, saveConfig } from './storage/soundboardStorage';
-import type { SoundButton, SoundboardConfig } from './types/soundboard';
+import { activatePlayer, getPlayer, initPlayer, queuePause, queuePlay, queuePlaylist, queueResume } from './spotify/player';
+import { isConfigured, loadConfig, saveConfig } from './storage/soundboardStorage';
+import type { SoundButton, SoundboardConfig, Track } from './types/soundboard';
+import { pickTrack } from './utils/shuffleBag';
 import { formatTime } from './utils/time';
 
 type AuthState = 'checking' | 'loggedOut' | 'loggedIn';
@@ -32,6 +33,9 @@ export default function App() {
   const [board, setBoard] = useState<SoundboardConfig>(loadConfig);
   const [editing, setEditing] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [tabId, setTabId] = useState<string>(() => board.tabs[0].id);
+
+  const tab = board.tabs.find((t) => t.id === tabId) ?? board.tabs[0];
 
   useEffect(() => saveConfig(board), [board]);
 
@@ -84,13 +88,20 @@ export default function App() {
     setError(null);
   };
 
-  const onPlayButton = (b: SoundButton) => {
-    if (!b.spotifyUri) return setError(`„${b.name}“ hat noch keinen Song. Im ⚙️ Editor einstellen.`);
+  /** `track` given = editor test of one specific song; otherwise rotate. */
+  const onPlayButton = (b: SoundButton, track?: Track) => {
+    if (!isConfigured(b)) return setError(`„${b.name}“ hat noch keine Musik. Im ⚙️ Editor einstellen.`);
     if (playerStatus !== 'ready' || !deviceId) return setError('Spotify-Player ist noch nicht bereit.');
     if (!activated) onActivate();
     setError(null);
     setActiveId(b.id);
-    queuePlay(deviceId, b.spotifyUri, b.startMs, reportError);
+    if (b.mode === 'playlist' && b.playlist) {
+      const { uri, trackCount, shuffle } = b.playlist;
+      const offset = shuffle && trackCount ? Math.floor(Math.random() * trackCount) : 0;
+      return queuePlaylist(deviceId, uri, offset, shuffle, reportError);
+    }
+    const t = track ?? pickTrack(b);
+    if (t) queuePlay(deviceId, t.uri, t.startMs, reportError);
   };
 
   const onPause = () => queuePause(reportError);
@@ -160,6 +171,8 @@ export default function App() {
         <Editor
           config={board}
           onChange={setBoard}
+          tabId={tab.id}
+          onSelectTab={setTabId}
           onTest={onPlayButton}
           canTest={ready}
           onClose={() => setEditing(false)}
@@ -181,7 +194,9 @@ export default function App() {
           )}
 
           <Soundboard
-            buttons={board.buttons}
+            tabs={board.tabs}
+            tabId={tab.id}
+            onSelectTab={setTabId}
             activeId={activeId}
             paused={!playing}
             disabled={!ready}

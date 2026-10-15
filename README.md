@@ -117,6 +117,11 @@ git push -u origin main
 8. **⏹ STOP** pausiert, **▶ WEITER** setzt fort
 9. Bei Problemen: **Debug** aufklappen (Device ID, Track, Position, letzter Fehler)
 
+**Mehrere Songs pro Button:** Einfach mehrere Songs hinzufügen (jeder mit eigener Startzeit). Jeder Tap spielt
+zufällig einen anderen – erst wenn alle dran waren, wiederholt sich einer.
+**Playlist-Button:** Im Editor „📃 Playlist“ wählen und einen Playlist-Link einfügen (z. B. fürs Aufwärmen).
+**Tabs:** „+ Tab“ für Genres/Gegner, „+ Spielerinnen-Tab“ legt 6 Buttons für Spielerinnen an.
+
 Die Konfiguration liegt im `localStorage` des Safari-Profils auf dem iPad. **⬇ Export JSON** sichert sie als
 `soundboard.json` (Dateien-App), **⬆ Import JSON** lädt sie zurück, **Reset** stellt die 6 Standard-Buttons her.
 
@@ -145,8 +150,12 @@ OAuth-Redirects verhalten sich dort unzuverlässig. Erst testen, wenn alles in S
 - **Endzeit (`endMs`):** Endzeit wird in Version 2 ergänzt (das SDK hat kein „stop at“; nur per Polling möglich).
 - **Suche:** `GET /search` und `GET /tracks/{id}` brauchen keinen zusätzlichen Scope. Development Mode liefert
   max. 10 Treffer pro Anfrage; die Suche ist mit 400 ms Debounce entprellt, laufende Anfragen werden abgebrochen.
-- **Import:** Importierte JSON-Dateien werden validiert (nur `spotify:track:`-URIs, nur Cover von `i.scdn.co`,
-  max. 24 Buttons), damit keine fremden Inhalte ins UI gelangen.
+- **Import:** Importierte JSON-Dateien werden validiert (nur `spotify:track:`/`spotify:playlist:`-URIs, nur Cover
+  von `i.scdn.co`, max. 8 Tabs à 24 Buttons à 20 Songs), damit keine fremden Inhalte ins UI gelangen.
+  Alte Exporte (ein Song pro Button, ohne Tabs) werden automatisch übernommen.
+- **Playlists:** Seit Feb. 2026 liefert `GET /playlists/{id}` die Songanzahl nur für eigene Playlists. Ohne
+  Songanzahl startet eine Playlist mit Zufallsreihenfolge immer beim ersten Song. Playlist-Cover werden nicht
+  gespeichert, weil ihre URLs nach weniger als einem Tag ablaufen.
 
 ## Spotify-Richtlinien
 

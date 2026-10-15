@@ -70,15 +70,11 @@ export async function transferPlayback(deviceId: string): Promise<void> {
   });
 }
 
-/**
- * Starts `uri` at `positionMs` on our SDK device in ONE request (uris + position_ms),
- * so no separate seek can race with a later track.
- */
-export async function playTrack(deviceId: string, uri: string, positionMs: number): Promise<void> {
+async function startPlayback(deviceId: string, body: object): Promise<void> {
   const send = () =>
     apiFetch(`/me/player/play?device_id=${encodeURIComponent(deviceId)}`, {
       method: 'PUT',
-      body: JSON.stringify({ uris: [uri], position_ms: Math.max(0, Math.round(positionMs)) }),
+      body: JSON.stringify(body),
     });
   try {
     await send();
@@ -91,6 +87,21 @@ export async function playTrack(deviceId: string, uri: string, positionMs: numbe
     }
     throw e;
   }
+}
+
+/**
+ * Starts `uri` at `positionMs` on our SDK device in ONE request (uris + position_ms),
+ * so no separate seek can race with a later track.
+ */
+export async function playTrack(deviceId: string, uri: string, positionMs: number): Promise<void> {
+  await startPlayback(deviceId, { uris: [uri], position_ms: Math.max(0, Math.round(positionMs)) });
+}
+
+/** Plays a playlist from track index `offset`, then applies the shuffle mode to that context. */
+export async function playPlaylist(deviceId: string, uri: string, offset: number, shuffle: boolean): Promise<void> {
+  await startPlayback(deviceId, { context_uri: uri, offset: { position: offset } });
+  const q = new URLSearchParams({ state: String(shuffle), device_id: deviceId });
+  await apiFetch(`/me/player/shuffle?${q}`, { method: 'PUT' });
 }
 
 export interface TrackInfo {
@@ -146,6 +157,40 @@ export function parseTrackUri(input: string): string | null {
     s.match(/^spotify:track:([A-Za-z0-9]{22})$/) ??
     s.match(/^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?track\/([A-Za-z0-9]{22})(?:[/?#].*)?$/i);
   return m ? `spotify:track:${m[1]}` : null;
+}
+
+export interface PlaylistInfo {
+  uri: string;
+  name: string;
+  trackCount: number | null;
+}
+
+/**
+ * GET /playlists/{id}. Since Feb 2026 `items` is only returned for the user's own playlists,
+ * so trackCount may be null. Playlist images are not stored: their URLs expire within a day.
+ */
+export async function getPlaylist(uri: string): Promise<PlaylistInfo> {
+  const id = uri.split(':')[2];
+  const q = new URLSearchParams({ fields: 'uri,name,items(total)' });
+  try {
+    const res = await apiFetch(`/playlists/${encodeURIComponent(id)}?${q}`, { method: 'GET' });
+    const json = (await res.json()) as { name?: string; items?: { total?: number } };
+    return { uri, name: json.name ?? 'Playlist', trackCount: json.items?.total ?? null };
+  } catch (e) {
+    if (e instanceof SpotifyApiError && (e.status === 403 || e.status === 404)) {
+      throw new SpotifyApiError(e.status, 'Playlist nicht gefunden oder für diese App nicht lesbar.');
+    }
+    throw e;
+  }
+}
+
+/** Accepts spotify:playlist:ID or https://open.spotify.com/(intl-xx/)playlist/ID?si=… */
+export function parsePlaylistUri(input: string): string | null {
+  const s = input.trim();
+  const m =
+    s.match(/^spotify:playlist:([A-Za-z0-9]{22})$/) ??
+    s.match(/^https?:\/\/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/([A-Za-z0-9]{22})(?:[/?#].*)?$/i);
+  return m ? `spotify:playlist:${m[1]}` : null;
 }
 
 export function toUserMessage(e: unknown): string {
