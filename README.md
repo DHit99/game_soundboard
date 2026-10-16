@@ -7,8 +7,9 @@ Persönliches, nicht-kommerzielles Soundboard: Button drücken → Spotify-Track
 - Login: OAuth 2.0 **Authorization Code with PKCE** (kein Client Secret)
 - Start: **eine** Anfrage `PUT /me/player/play?device_id=…` mit `{ uris: [track], position_ms }`
 
-> Status: **Phase 1–3** (Login, Player, „Spotify aktivieren“, Soundboard mit 6 Buttons, Editor mit Song-Suche,
-> Startzeit, localStorage, Import/Export). Endzeit (`endMs`) folgt in Version 2.
+> Status: **MVP abgeschlossen und auf dem iPad getestet** (Login, Player, „Spotify aktivieren“, Soundboard mit Tabs,
+> mehrere Songs pro Button, Playlist-Buttons, Editor mit Song-Suche, Startzeit, localStorage, Import/Export).
+> Endzeit (`endMs`) folgt in Version 2.
 
 ---
 
